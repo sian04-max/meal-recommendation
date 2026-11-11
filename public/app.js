@@ -1,6 +1,6 @@
 // ==============================================================================
 // 파일명: public/app.js
-// 설명: 식사 메뉴 랜덤 추천기 프론트엔드 비즈니스 로직 (중복 방지 메모리 탑재)
+// 설명: 식사 메뉴 랜덤 추천기 프론트엔드 비즈니스 로직 (중복 방지 메모리 + 사진 누락 방지)
 // ==============================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -25,16 +25,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const feedbackList = document.getElementById('feedback-list');
   const feedbackTotalCount = document.getElementById('feedback-total-count');
 
-  // [핵심] 최근 추천받은 메뉴들을 기억하는 메모리 배열 (중복 방지용)
+  // 최근 추천받은 메뉴들을 기억하는 메모리 배열 (중복 방지용)
   const recentMenusHistory = [];
+  const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1553163147-622ab57be1c7?auto=format&fit=crop&w=800&q=80';
 
   // ==============================================================================
-  // 2. 초기 데이터 로드 (페이지 열리자마자 기존 피드백 목록 조회)
+  // 2. 초기 데이터 로드
   // ==============================================================================
   fetchFeedbackList();
 
   // ==============================================================================
-  // 3. [기능 1] 메뉴 추천받기 버튼 이벤트 (중복 목록 서버 전송)
+  // 3. [기능 1] 메뉴 추천받기 버튼 이벤트
   // ==============================================================================
   recommendBtn.addEventListener('click', async () => {
     const selectedRadio = document.querySelector('input[name="mealTime"]:checked');
@@ -49,13 +50,12 @@ document.addEventListener('DOMContentLoaded', () => {
     hideError();
 
     try {
-      // 서버로 식사 시간대와 함께 '최근 추천받았던 메뉴 목록'을 함께 전달
       const response = await fetch('/api/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           timeOfDay: timeOfDay,
-          recentMenus: recentMenusHistory, // 이 목록에 있는 메뉴는 무조건 제외됨
+          recentMenus: recentMenusHistory,
         }),
       });
 
@@ -65,7 +65,6 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(result.error || '메뉴 추천을 가져오지 못했습니다.');
       }
 
-      // 새로 추천받은 메뉴를 히스토리에 추가 (최대 15개까지 기억)
       if (result.data.mainMenu) {
         recentMenusHistory.push(result.data.mainMenu);
         if (recentMenusHistory.length > 15) {
@@ -85,7 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ==============================================================================
-  // 4. 메뉴 추천 결과 화면 바인딩 함수
+  // 4. 메뉴 추천 결과 화면 바인딩 함수 (사진 무조건 표시 보장)
   // ==============================================================================
   function renderRecommendation(data) {
     const { timeOfDay, mainMenu, sideMenu, reason, imageUrl } = data;
@@ -95,10 +94,9 @@ document.addEventListener('DOMContentLoaded', () => {
     sideMenuName.textContent = sideMenu;
     reasonDesc.textContent = reason;
 
-    if (imageUrl) {
-      foodImage.src = imageUrl;
-      foodImage.alt = `${mainMenu} 대표 이미지`;
-    }
+    // 사진 바인딩 (어떤 경우에도 비어있거나 누락되지 않도록 보장)
+    foodImage.src = imageUrl || DEFAULT_IMAGE;
+    foodImage.alt = `${mainMenu} 실제 음식 사진`;
 
     resultBox.classList.remove('hidden');
     resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
