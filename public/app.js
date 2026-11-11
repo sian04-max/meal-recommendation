@@ -1,11 +1,6 @@
 // ==============================================================================
 // 파일명: public/app.js
-// 설명: 식사 메뉴 랜덤 추천기 프론트엔드 비즈니스 로직 (Vanilla JavaScript)
-// 주요 기능:
-//   1. 아침/점심/저녁 시간대 선택 및 OpenAI AI 추천 API 호출 (/api/recommend)
-//   2. AI 메인 메뉴 + 조합 메뉴 + 이유 화면 렌더링
-//   3. Supabase 연동 피드백 작성 (/api/feedback) 및 실시간 목록 조회
-//   4. 로딩 상태(스피너) 및 직관적인 오류 처리
+// 설명: 식사 메뉴 랜덤 추천기 프론트엔드 비즈니스 로직 (음식 사진 지원)
 // ==============================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -20,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const mainMenuName = document.getElementById('main-menu-name');
   const sideMenuName = document.getElementById('side-menu-name');
   const reasonDesc = document.getElementById('reason-desc');
+  const foodImage = document.getElementById('food-image');
 
   const feedbackForm = document.getElementById('feedback-form');
   const nicknameInput = document.getElementById('nickname-input');
@@ -38,7 +34,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // 3. [기능 1] 메뉴 추천받기 버튼 이벤트
   // ==============================================================================
   recommendBtn.addEventListener('click', async () => {
-    // 선택된 라디오 버튼의 값(아침/점심/저녁) 확인
     const selectedRadio = document.querySelector('input[name="mealTime"]:checked');
     if (!selectedRadio) {
       showError('식사 시간대(아침, 점심, 저녁)를 선택해주세요.');
@@ -47,12 +42,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const timeOfDay = selectedRadio.value;
 
-    // UI 상태: 로딩 중으로 전환
     setRecommendLoading(true);
     hideError();
 
     try {
-      // 백엔드 API (POST /api/recommend) 호출
       const response = await fetch('/api/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -65,7 +58,6 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(result.error || '메뉴 추천을 가져오지 못했습니다.');
       }
 
-      // 추천 결과 화면 표시
       renderRecommendation(result.data);
 
     } catch (err) {
@@ -73,26 +65,31 @@ document.addEventListener('DOMContentLoaded', () => {
       showError(err.message || '서버와의 통신에 실패했습니다. 잠시 후 다시 시도해주세요.');
       resultBox.classList.add('hidden');
     } finally {
-      // UI 상태: 로딩 해제
       setRecommendLoading(false);
     }
   });
 
   // ==============================================================================
-  // 4. 메뉴 추천 결과 화면 바인딩 함수
+  // 4. 메뉴 추천 결과 화면 바인딩 함수 (이미지 포함)
   // ==============================================================================
   function renderRecommendation(data) {
-    const { timeOfDay, mainMenu, sideMenu, reason } = data;
+    const { timeOfDay, mainMenu, sideMenu, reason, imageUrl } = data;
 
     resultTimeTag.textContent = `${timeOfDay} 추천 세트`;
     mainMenuName.textContent = mainMenu;
     sideMenuName.textContent = sideMenu;
     reasonDesc.textContent = reason;
 
+    // 음식 고화질 이미지 바인딩
+    if (imageUrl) {
+      foodImage.src = imageUrl;
+      foodImage.alt = `${mainMenu} 대표 이미지`;
+    }
+
     // 숨겨져 있던 결과 카드 노출
     resultBox.classList.remove('hidden');
 
-    // 결과 카드가 화면에 잘 보이도록 부드럽게 스크롤
+    // 결과 카드로 부드럽게 스크롤
     resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
@@ -131,11 +128,9 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(result.error || '피드백 등록에 실패했습니다.');
       }
 
-      // 입력 폼 초기화
       contentInput.value = '';
       nicknameInput.value = '';
 
-      // 등록 즉시 최신 피드백 목록 새로고침
       await fetchFeedbackList();
 
     } catch (err) {
@@ -163,7 +158,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // 피드백 리스트 화면 렌더링
   function renderFeedbackList(items) {
     feedbackTotalCount.textContent = items.length;
 
@@ -172,7 +166,6 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    // 최신순 피드백 카드 동적 생성
     feedbackList.innerHTML = items.map((item) => {
       const dateStr = formatDate(item.created_at);
       const safeAuthor = escapeHtml(item.nickname || '익명');
@@ -225,7 +218,6 @@ document.addEventListener('DOMContentLoaded', () => {
     feedbackError.classList.add('hidden');
   }
 
-  // 날짜 포맷 변환 (한국 시간 기준)
   function formatDate(isoString) {
     if (!isoString) return '';
     try {
@@ -236,11 +228,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // XSS 방지를 위한 안전한 HTML 이스케이프 처리
   function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
   }
 });
-

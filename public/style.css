@@ -1,6 +1,6 @@
 /* ==============================================================================
    파일명: public/style.css
-   컨셉: 따뜻하고 식욕을 돋우는 웜 톤(오렌지/베이지/크림) 카드형 직관적 UI
+   컨셉: 따뜻하고 식욕을 돋우는 웜 톤(오렌지/베이지/크림) 카드형 직관적 UI (음식 사진 지원)
    ============================================================================== */
 
 /* 1. 디자인 시스템 변수 */
@@ -215,7 +215,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .selected-badge {
@@ -237,12 +237,35 @@ body {
   font-weight: 600;
 }
 
+/* 음식 고화질 이미지 영역 */
+.food-image-wrapper {
+  width: 100%;
+  height: 220px;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 20px;
+  border: 1px solid #EFE8E1;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+  background-color: #F5EFEB;
+}
+
+.food-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.4s ease;
+}
+
+.food-image:hover {
+  transform: scale(1.03);
+}
+
 .menu-combination {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .menu-item {
@@ -271,7 +294,7 @@ body {
 }
 
 .item-name {
-  font-size: 16.5px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--text-primary);
   word-break: keep-all;
@@ -485,5 +508,7 @@ body {
   .plus-icon {
     transform: rotate(90deg);
   }
+  .food-image-wrapper {
+    height: 180px;
+  }
 }
-

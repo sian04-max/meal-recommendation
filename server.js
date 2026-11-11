@@ -1,12 +1,10 @@
 // ==============================================================================
 // 파일명: server.js
-// 설명: 식사 메뉴 랜덤 추천기 백엔드 Express 서버 (다양성 극대화 개선 버전)
-// 주요 역할:
-//   1. 프론트엔드 정적 파일(HTML, CSS, JS) 서빙 (public 폴더)
-//   2. 사용자가 선택한 시간대(아침/점심/저녁) 기반 OpenAI API 메뉴 추천 (/api/recommend)
-//      - 고기 위주 편향 탈피: 해산물, 생선, 면류, 건강식, 별미 등 다채로운 랜덤 큐레이션
-//   3. Supabase 연동 피드백 저장 및 최신순 목록 조회 (/api/feedback)
-//   4. Vercel 클라우드 서버리스 배포 완벽 호환
+// 설명: 식사 메뉴 랜덤 추천기 백엔드 Express 서버
+// 주요 개선사항:
+//   1. 과장되고 억지스러운 수식어('향긋한', '풍미 가득한' 등) 배제 -> 깔끔하고 담백한 현실적 톤앤매너
+//   2. 추천된 메뉴에 꼭 맞는 고화질 실제 음식 이미지(imageUrl) 자동 매칭 제공
+//   3. 해산물, 면, 한식, 건강식 등 다양성 유지
 // ==============================================================================
 
 // 1. 필요한 외부 모듈 가져오기
@@ -37,44 +35,88 @@ const isValidUrl = SUPABASE_URL && SUPABASE_URL.startsWith('http') && !SUPABASE_
 if (isValidUrl && SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.includes('your_supabase_anon')) {
   try {
     supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    console.log('✅ [Supabase] 데이터베이스 클라이언트가 성공적으로 연결되었습니다.');
   } catch (err) {
     console.warn('⚠️ [Supabase] 연결 초기화 실패:', err.message);
   }
-} else {
-  console.warn('⚠️ [Supabase] 유효한 SUPABASE_URL 또는 KEY가 설정되지 않았습니다.');
 }
 
 // 5. Express 앱 인스턴스 생성 및 미들웨어 설정
 const app = express();
 
-// 교차 출처 리소스 공유(CORS) 허용
 app.use(cors());
-
-// JSON 형태의 요청 본문 파싱
 app.use(express.json());
-
-// public 폴더의 정적 파일(index.html, style.css, app.js 등) 서빙
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 다양한 음식 카테고리 풀 (랜덤 시드용)
-const FOOD_CATEGORIES = [
-  '신선한 해산물/생선 요리 (고등어구이, 해물탕, 낙지볶음, 회덮밥, 대구지리, 바지락칼국수 등)',
-  '속 편한 담백 한식/찌개류 (청국장, 순두부찌개, 황태해장국, 우렁된장찌개 등)',
-  '별미 면 요리 (메밀소바, 짬뽕, 쌀국수, 들기름막국수, 해물파스타 등)',
-  '깔끔한 덮밥 및 솥밥 (연어덮밥, 꼬막비빔밥, 가지솥밥, 전복죽 등)',
-  '다채로운 아시안/양식/이색 요리 (팟타이, 타코, 리조또, 카레우동 등)',
-  '든든한 고기/볶음 요리 (갈비탕, 보쌈, 닭볶음탕 등)'
-];
+// 음식 카테고리별 검증된 고화질 무료 음식 사진 큐레이션 (Unsplash CDN)
+const FOOD_IMAGES = {
+  // 1. 생선구이 / 해산물
+  'fish': 'https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?auto=format&fit=crop&w=800&q=80', // 생선 구이
+  'seafood': 'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?auto=format&fit=crop&w=800&q=80', // 신선한 해산물/초밥
+  'sashimi': 'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?auto=format&fit=crop&w=800&q=80', // 회/덮밥
+  'shrimp': 'https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?auto=format&fit=crop&w=800&q=80', // 새우/해물 요리
+
+  // 2. 찌개 / 국물 / 탕
+  'stew': 'https://images.unsplash.com/photo-1547928576-a4a33237cbc3?auto=format&fit=crop&w=800&q=80', // 얼큰한 찌개/전골
+  'soup': 'https://images.unsplash.com/photo-1547592166-23ac45744acd?auto=format&fit=crop&w=800&q=80', // 따뜻하고 맑은 국물
+
+  // 3. 면 요리
+  'noodle': 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=800&q=80', // 국수/라멘/우동
+  'pasta': 'https://images.unsplash.com/photo-1621996346565-e3d5d6281699?auto=format&fit=crop&w=800&q=80', // 파스타
+
+  // 4. 밥 / 비빔밥 / 덮밥 / 정식
+  'rice': 'https://images.unsplash.com/photo-1553163147-622ab57be1c7?auto=format&fit=crop&w=800&q=80', // 정갈한 한식 밥상/덮밥
+  'bibimbap': 'https://images.unsplash.com/photo-1590301157890-4810ed352733?auto=format&fit=crop&w=800&q=80', // 다채로운 비빔밥
+
+  // 5. 아침 / 가벼운 식사
+  'breakfast': 'https://images.unsplash.com/photo-1533089860892-a7c6f0a88666?auto=format&fit=crop&w=800&q=80', // 부드러운 아침 식사
+
+  // 6. 든든한 일품 요리 / 고기
+  'meat': 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=800&q=80', // 깔끔한 구이 요리
+
+  // 기본 대표 이미지 (한식 정식)
+  'default': 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80'
+};
+
+// 메뉴 이름과 키워드를 기반으로 가장 적합한 고화질 이미지 URL을 찾는 헬퍼 함수
+function getFoodImageUrl(menuName, imageType) {
+  const name = (menuName || '').toLowerCase();
+  
+  if (name.includes('고등어') || name.includes('갈치') || name.includes('생선') || name.includes('연어') || name.includes('보리굴비') || name.includes('임연수')) {
+    return FOOD_IMAGES['fish'];
+  }
+  if (name.includes('회') || name.includes('초밥') || name.includes('물회') || name.includes('덮밥')) {
+    return FOOD_IMAGES['sashimi'];
+  }
+  if (name.includes('해물') || name.includes('낙지') || name.includes('쭈꾸미') || name.includes('오징어') || name.includes('조개') || name.includes('꼬막') || name.includes('새우')) {
+    return FOOD_IMAGES['seafood'];
+  }
+  if (name.includes('찌개') || name.includes('탕') || name.includes('전골') || name.includes('순두부') || name.includes('칼국수')) {
+    return FOOD_IMAGES['stew'];
+  }
+  if (name.includes('국') || name.includes('탕') || name.includes('죽')) {
+    return FOOD_IMAGES['soup'];
+  }
+  if (name.includes('면') || name.includes('국수') || name.includes('소바') || name.includes('짬뽕') || name.includes('우동')) {
+    return FOOD_IMAGES['noodle'];
+  }
+  if (name.includes('비빔밥') || name.includes('솥밥')) {
+    return FOOD_IMAGES['bibimbap'];
+  }
+  if (name.includes('토스트') || name.includes('샐러드') || name.includes('계란')) {
+    return FOOD_IMAGES['breakfast'];
+  }
+
+  // fallback: 모델이 분류한 imageType 또는 기본값
+  return FOOD_IMAGES[imageType] || FOOD_IMAGES['default'];
+}
 
 // ==============================================================================
-// 6. [API 1] 식사 메뉴 추천: POST /api/recommend (다양성 개선)
+// 6. [API 1] 식사 메뉴 추천: POST /api/recommend (담백한 톤 + 이미지 제공)
 // ==============================================================================
 app.post('/api/recommend', async (req, res) => {
   try {
     const { timeOfDay } = req.body;
 
-    // [검증] 아침/점심/저녁 중 유효한 값인지 체크
     const validTimes = ['아침', '점심', '저녁'];
     if (!timeOfDay || !validTimes.includes(timeOfDay)) {
       return res.status(400).json({
@@ -83,7 +125,6 @@ app.post('/api/recommend', async (req, res) => {
       });
     }
 
-    // OpenAI API 키 누락 여부 확인
     if (!OPENAI_API_KEY || OPENAI_API_KEY.includes('your_openai_api_key')) {
       return res.status(500).json({
         success: false,
@@ -91,43 +132,43 @@ app.post('/api/recommend', async (req, res) => {
       });
     }
 
-    // 추천 다양성을 위해 랜덤 카테고리 힌트 선택
-    const randomCategoryHint = FOOD_CATEGORIES[Math.floor(Math.random() * FOOD_CATEGORIES.length)];
     const uniqueSeed = Date.now();
 
-    // OpenAI gpt-4o-mini 호출 (다양성 극대화 프롬프트)
+    // OpenAI gpt-4o-mini 호출 (과장 금지, 담백한 실용 설명, 이미지 타입 분류)
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       response_format: { type: 'json_object' },
       messages: [
         {
           role: 'system',
-          content: `당신은 음식의 영양 균형과 다채로운 미식을 중요시하는 대한민국 최고의 식사 메뉴 큐레이터입니다.
+          content: `당신은 실용적이고 센스 있는 식사 메뉴 추천 큐레이터입니다.
 
-[메뉴 추천 필수 원칙]
-1. [고기 편향 절대 금지]: 제육볶음, 돈까스, 삼겹살 등 뻔한 육류 위주 추천을 피하고, **신선한 해산물/생선 요리(해물탕, 고등어구이, 꼬막비빔밥, 낙지볶음, 회덮밥, 대구탕, 조개칼국수 등), 정갈한 나물/채소 건강식, 시원한 면 요리, 이색 솥밥/덮밥 등 폭넓고 다채로운 장르**에서 창의적으로 추천하세요.
-2. [시간대 맞춤 큐레이션]:
-   - 아침: 부담 없이 속을 따뜻하게 깨워주는 담백하고 부드러운 메뉴
-   - 점심: 활력을 채워주는 다채로운 한식, 해산물 요리, 면류, 아시안/양식 등
-   - 저녁: 하루의 피로를 풀어주는 풍성하고 특별한 미식 조합
-3. [최적의 꿀조합]: 메인 메뉴의 맛과 식감을 완벽하게 받쳐주는 사이드 메뉴 1개를 센스 있게 페어링하세요.
+[작성 및 추천 지침 - 엄격 준수]
+1. [과장된 미사여구 금지]:
+   - '향긋한', '풍미 가득한', '환상적인', '입안 가득 퍼지는' 등 오글거리거나 억지스러운 수식어를 절대 붙이지 마세요.
+   - 메뉴 이름은 군더더기 없이 일상에서 부르는 깔끔한 이름으로 작성하세요 (예: '고등어구이', '해물순두부찌개', '비빔밥', '바지락칼국수').
+2. [담백하고 실용적인 추천 이유]:
+   - 추천 이유는 1~2문장으로, 현실적인 장점(소화가 편함, 든든함, 가볍게 먹기 좋음, 날씨나 시간대에 어울림 등)을 차분하고 자연스럽게 설명하세요.
+3. [카테고리 다양성 보장]:
+   - 고기 위주의 편향을 피하고, 해산물/생선구이, 찌개, 덮밥/솥밥, 면류, 건강 한식 등을 골고루 추천하세요.
+4. [imageType 필드]:
+   - 메뉴에 맞는 적절한 영어 카테고리를 다음 중 하나로 지정하세요: 'fish', 'seafood', 'stew', 'soup', 'noodle', 'rice', 'bibimbap', 'breakfast', 'meat'
 
-반드시 아래의 순수 JSON 형식으로만 응답해주세요:
+반드시 아래의 JSON 형식으로만 응답해주세요:
 {
-  "mainMenu": "추천 메인 메뉴 1개 (예: 바삭하고 촉촉한 고등어구이)",
-  "sideMenu": "찰떡궁합 사이드 메뉴 1개 (예: 구수한 시래기된장국)",
-  "reason": "해당 시간대에 이 조합을 강력 추천하는 따뜻하고 식욕을 돋우는 한마디 설명"
+  "mainMenu": "깔끔한 메인 메뉴명",
+  "sideMenu": "잘 어울리는 조합 메뉴명",
+  "reason": "과장 없는 담백하고 자연스러운 추천 이유 (1~2문장)",
+  "imageType": "fish | seafood | stew | soup | noodle | rice | bibimbap | breakfast | meat"
 }`,
         },
         {
           role: 'user',
-          content: `지금은 "${timeOfDay}" 식사 시간입니다.
-[참고 힌트(영감용)]: 이번 추천에는 특히 "${randomCategoryHint}" 계열이나 평소 자주 접하기 힘든 신선한 별미(해산물, 생선, 면, 솥밥 등)를 적극 고려해 주세요. (고기 일색 탈피)
-[식별 시드: ${uniqueSeed}]
-오늘 가장 기분 좋고 새롭게 즐길 수 있는 메인 메뉴 1개와 꿀조합 사이드 1개를 추천해주세요!`,
+          content: `시간대: "${timeOfDay}" [시드: ${uniqueSeed}]
+상투적인 수식어 없이 깔끔한 메뉴명과 담백한 이유로 추천해주세요.`,
         },
       ],
-      temperature: 1.05, // 창의성과 다양성 대폭 증대
+      temperature: 0.95,
     });
 
     const rawContent = completion.choices[0]?.message?.content;
@@ -136,14 +177,22 @@ app.post('/api/recommend', async (req, res) => {
     }
 
     const parsedData = JSON.parse(rawContent);
+    const mainMenu = parsedData.mainMenu || '고등어구이';
+    const sideMenu = parsedData.sideMenu || '된장찌개';
+    const reason = parsedData.reason || '속이 편안하고 든든하게 한 끼를 챙기기 좋은 조합입니다.';
+    const imageType = parsedData.imageType || 'fish';
+
+    // 메뉴와 어울리는 고화질 실제 음식 사진 URL 매칭
+    const imageUrl = getFoodImageUrl(mainMenu, imageType);
 
     return res.status(200).json({
       success: true,
       data: {
         timeOfDay: timeOfDay,
-        mainMenu: parsedData.mainMenu || '신선한 생선구이 정식',
-        sideMenu: parsedData.sideMenu || '맑은 바지락 조갯국',
-        reason: parsedData.reason || '신선한 재료의 풍미가 가득하여 기분 좋은 활력을 주는 최고의 한 끼입니다.',
+        mainMenu: mainMenu,
+        sideMenu: sideMenu,
+        reason: reason,
+        imageUrl: imageUrl,
       },
     });
 
@@ -170,7 +219,6 @@ app.get('/api/feedback', async (req, res) => {
       });
     }
 
-    // feedbacks 테이블에서 최신순(created_at 내림차순)으로 최대 50건 조회
     const { data, error } = await supabase
       .from('feedbacks')
       .select('id, nickname, content, created_at')
@@ -206,7 +254,6 @@ app.post('/api/feedback', async (req, res) => {
   try {
     const { nickname, content } = req.body;
 
-    // [검증] 피드백 내용 필수 입력 체크
     if (!content || typeof content !== 'string' || content.trim().length === 0) {
       return res.status(400).json({
         success: false,
@@ -233,7 +280,6 @@ app.post('/api/feedback', async (req, res) => {
       });
     }
 
-    // Supabase feedbacks 테이블에 데이터 삽입(INSERT)
     const { data, error } = await supabase
       .from('feedbacks')
       .insert([
@@ -273,7 +319,7 @@ app.post('/api/feedback', async (req, res) => {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    service: '식사 메뉴 랜덤 추천기 (다양성 버전)',
+    service: '식사 메뉴 랜덤 추천기 (이미지 및 담백한 설명 지원)',
     time: new Date().toISOString(),
   });
 });
@@ -290,5 +336,4 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-// Vercel 서버리스 호환용 모듈 내보내기
 module.exports = app;
