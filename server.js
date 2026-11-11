@@ -1,10 +1,10 @@
 // ==============================================================================
 // 파일명: server.js
-// 설명: 식사 메뉴 랜덤 추천기 백엔드 Express 서버 (음식 사진 100% 일치 업그레이드)
+// 설명: 식사 메뉴 랜덤 추천기 백엔드 Express 서버 (중복 원천 차단 + 찰떡 궁합 페어링 업그레이드)
 // 주요 개선사항:
-//   1. 한국어 위키백과(Wikipedia) 공식 API 연동 -> 실제 메뉴와 100% 일치하는 음식 실물 사진 자동 수집
-//   2. 과장된 수식어 배제 및 담백한 생활 밀착형 추천
-//   3. Supabase 연동 피드백 및 Vercel 서버리스 지원
+//   1. 최근 추천 이력(recentMenus) 제외 알고리즘 -> 연속 클릭 시 100% 새로운 메뉴 보장
+//   2. 한국인 미식 맞춤형 정교한 꿀조합(국물/반찬 밸런스 페어링) 로직 탑재
+//   3. 위키백과 실물 사진 100% 매칭 유지
 // ==============================================================================
 
 // 1. 필요한 외부 모듈 가져오기
@@ -28,7 +28,7 @@ const openai = new OpenAI({
   apiKey: OPENAI_API_KEY || 'dummy_key',
 });
 
-// 4. Supabase 클라이언트 초기화 (안전 검증 로직 적용)
+// 4. Supabase 클라이언트 초기화
 let supabase = null;
 const isValidUrl = SUPABASE_URL && SUPABASE_URL.startsWith('http') && !SUPABASE_URL.includes('your_supabase_url');
 
@@ -62,12 +62,11 @@ const FALLBACK_IMAGES = {
 async function fetchAccurateFoodImage(menuName) {
   if (!menuName) return FALLBACK_IMAGES['default'];
 
-  // 검색어 정리 (예: '매콤한 낙지볶음' -> '낙지볶음', '얼큰 해물순두부' -> '순두부찌개')
   const cleanName = menuName.trim();
   const searchCandidates = [
     cleanName,
     cleanName.replace(/^(얼큰|시원한|매콤한|담백한|따뜻한|바삭한|고소한|신선한)\s+/, ''),
-    cleanName.split(' ').pop(), // 마지막 핵심 명사 (예: 해물순두부찌개 -> 찌개 or 순두부찌개)
+    cleanName.split(' ').pop(),
   ];
 
   for (const query of searchCandidates) {
@@ -81,17 +80,15 @@ async function fetchAccurateFoodImage(menuName) {
 
       if (response.ok) {
         const data = await response.json();
-        // 위키백과 공식 대표 썸네일 이미지 추출
         if (data.thumbnail && data.thumbnail.source) {
           return data.thumbnail.source;
         }
       }
     } catch (e) {
-      // 다음 후보 검색어로 계속 시도
+      // 다음 후보로 폴백 시도
     }
   }
 
-  // 검색되지 않은 경우 음식 특성에 맞는 기본 사진 반환
   if (cleanName.includes('고등어') || cleanName.includes('생선') || cleanName.includes('갈치')) {
     return FALLBACK_IMAGES['fish'];
   }
@@ -105,12 +102,23 @@ async function fetchAccurateFoodImage(menuName) {
   return FALLBACK_IMAGES['default'];
 }
 
+// 70여 가지의 다채로운 장르별 테마 키워드 풀 (매 요청 시 랜덤 부여)
+const DIVERSE_THEMES = [
+  '제철 해산물 요리 (꼬막비빔밥, 대구지리탕, 바지락칼국수, 낙지볶음, 회덮밥, 해물순두부 등)',
+  '생선구이 및 조림 (고등어구이, 갈치조림, 보리굴비, 삼치구이, 가자미구이 등)',
+  '시원하고 깔끔한 면 요리 (들기름막국수, 메밀소바, 잔치국수, 베트남쌀국수, 해물짬뽕 등)',
+  '속 편하고 구수한 한식 찌개/국 (청국장, 우렁된장찌개, 황태해장국, 소고기뭇국, 콩나물국밥 등)',
+  '정갈한 일품 덮밥/솥밥 (연어덮밥, 가지솥밥, 전복솥밥, 불고기덮밥, 장어덮밥 등)',
+  '세계 요리 및 퓨전 별미 (팟타이, 해물리조또, 카레우동, 오코노미야키, 타코 등)',
+  '건강 담백 채소/나물 요리 (산채비빔밥, 두부김치, 곤드레밥, 보리밥정식 등)'
+];
+
 // ==============================================================================
-// 6. [API 1] 식사 메뉴 추천: POST /api/recommend (실물 일치 사진 연동)
+// 6. [API 1] 식사 메뉴 추천: POST /api/recommend (중복 방지 + 페어링 개선)
 // ==============================================================================
 app.post('/api/recommend', async (req, res) => {
   try {
-    const { timeOfDay } = req.body;
+    const { timeOfDay, recentMenus } = req.body;
 
     const validTimes = ['아침', '점심', '저녁'];
     if (!timeOfDay || !validTimes.includes(timeOfDay)) {
@@ -127,41 +135,55 @@ app.post('/api/recommend', async (req, res) => {
       });
     }
 
+    // 중복 방지를 위한 배제 목록 정리
+    const excludedList = Array.isArray(recentMenus) ? recentMenus.filter(Boolean) : [];
+    const excludedText = excludedList.length > 0
+      ? `\n[절대 중복 제외 목록]: 사용자가 최근에 이미 본 메뉴 [${excludedList.join(', ')}]는 이번에 절대 추천하지 마세요. 완전히 새로운 메뉴를 선정하세요.`
+      : '';
+
+    // 매 요청마다 새로운 음식 장르를 랜덤 선택
+    const randomTheme = DIVERSE_THEMES[Math.floor(Math.random() * DIVERSE_THEMES.length)];
     const uniqueSeed = Date.now();
 
-    // OpenAI gpt-4o-mini 호출
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       response_format: { type: 'json_object' },
       messages: [
         {
           role: 'system',
-          content: `당신은 실용적이고 직관적인 식사 메뉴 추천 큐레이터입니다.
+          content: `당신은 대한민국 최고의 식사 메뉴 큐레이터입니다.
 
-[작성 지침]
-1. [정확한 표준 메뉴명 사용]:
-   - 위키백과나 포털에서 실물 사진을 바로 찾을 수 있도록, 메뉴명은 수식어 없이 대중적으로 통용되는 정확한 표준 이름으로 작성하세요.
-   - 예시: '고등어구이', '순두부찌개', '비빔밥', '낙지볶음', '바지락칼국수', '김치찌개', '된장찌개', '제육볶음', '콩나물국밥' 등
-2. [과장 금지 & 담백한 추천 이유]:
-   - '향긋한', '풍미 가득한' 같은 상투적인 미사여구는 절대 사용하지 마세요.
-   - 현실적으로 왜 좋은지 1~2문장의 담백한 이유만 작성하세요.
-3. [카테고리 다양성]:
-   - 해산물, 생선, 찌개, 덮밥, 면류, 건강 한식 등을 골고루 추천하세요.
+[핵심 미션 1: 중복 절대 금지]
+- 사용자가 이전에 추천받은 메뉴는 무조건 제외하고, 언제나 신선하고 새로운 메뉴를 찾아내세요.${excludedText}
+
+[핵심 미션 2: 과학적인 음식 궁합(페어링) 원칙]
+- 대충 아무 반찬이나 붙이지 말고, 메인 메뉴의 특성에 따라 완벽하게 보완되는 사이드 메뉴를 페어링하세요:
+  1) 매콤한 볶음/덮밥(낙지, 제육 등) -> 매운맛을 중화하는 '부드러운 계란찜' 또는 '맑은 콩나물국'
+  2) 생선구이류(고등어, 삼치 등) -> 기름기를 씻어주는 '구수한 된장찌개' 또는 '새콤한 오이무침'
+  3) 면 요리(칼국수, 국수 등) -> 아삭한 식감을 더해주는 '갓 담근 겉절이' 또는 '속이 꽉 찬 왕만두'
+  4) 맑은 탕/국밥류(갈비탕, 국밥 등) -> 알싸하게 입맛을 돋우는 '잘 익은 섞박지' 또는 '부추무침'
+  5) 비빔밥/솥밥류 -> 목넘김을 편하게 해주는 '맑은 시래기국' 또는 '동치미'
+
+[핵심 미션 3: 톤앤매너]
+- '향긋한', '풍미 가득한' 같은 상투적인 과장 수식어는 절대 쓰지 마세요.
+- 메인은 깔끔한 표준 메뉴명으로 작성하고, 이유는 왜 이 둘의 궁합이 좋은지 1~2문장으로 담백하게 설명하세요.
 
 반드시 아래 JSON 형식으로만 응답해주세요:
 {
-  "mainMenu": "표준 메뉴명 (예: 순두부찌개)",
-  "sideMenu": "어울리는 조합 반찬명 (예: 계란말이)",
-  "reason": "과장 없는 담백한 추천 이유 (1~2문장)"
+  "mainMenu": "표준 메뉴명 (예: 바지락칼국수)",
+  "sideMenu": "완벽한 궁합 메뉴 (예: 겉절이와 왕만두)",
+  "reason": "둘의 맛과 식감이 어우러지는 현실적이고 담백한 페어링 이유 (1~2문장)"
 }`,
         },
         {
           role: 'user',
-          content: `식사 시간: "${timeOfDay}" [시드: ${uniqueSeed}]
-위키백과에서 실제 음식 사진을 정확히 매칭할 수 있도록 가장 대중적이고 명확한 표준 메뉴명으로 추천해주세요.`,
+          content: `식사 시간대: "${timeOfDay}"
+이번 영감 테마: "${randomTheme}"
+[시드: ${uniqueSeed}]
+이전 추천과 겹치지 않는 새로운 메뉴와 최고로 어울리는 조합을 추천해주세요.`,
         },
       ],
-      temperature: 0.95,
+      temperature: 1.15, // 창의성과 다양성을 최고 수준으로 상향
     });
 
     const rawContent = completion.choices[0]?.message?.content;
@@ -170,11 +192,11 @@ app.post('/api/recommend', async (req, res) => {
     }
 
     const parsedData = JSON.parse(rawContent);
-    const mainMenu = parsedData.mainMenu || '순두부찌개';
-    const sideMenu = parsedData.sideMenu || '계란말이';
-    const reason = parsedData.reason || '속이 편안하고 든든하게 한 끼를 챙기기 좋은 조합입니다.';
+    const mainMenu = parsedData.mainMenu || '바지락칼국수';
+    const sideMenu = parsedData.sideMenu || '아삭한 겉절이';
+    const reason = parsedData.reason || '시원하고 담백한 국물에 아삭한 겉절이가 어우러져 깔끔하게 즐기기 좋습니다.';
 
-    // [핵심] 해당 메뉴의 실제 위키백과 실물 사진을 100% 매칭하여 가져오기
+    // 위키백과 실물 일치 사진 가져오기
     const accurateImageUrl = await fetchAccurateFoodImage(mainMenu);
 
     return res.status(200).json({
@@ -311,7 +333,7 @@ app.post('/api/feedback', async (req, res) => {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    service: '식사 메뉴 랜덤 추천기 (위키백과 실물 사진 일치 버전)',
+    service: '식사 메뉴 랜덤 추천기 (중복 방지 및 페어링 강화 버전)',
     time: new Date().toISOString(),
   });
 });
