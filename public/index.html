@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>오늘 뭐 먹지? | 식사 메뉴 랜덤 추천기</title>
+  
+  <!-- 구글 프리텐다드 및 Noto Sans KR 웹 폰트 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- 스타일시트 연결 -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="app-container">
+
+    <!-- 1. 헤더 영역 -->
+    <header class="main-header">
+      <div class="logo-badge">🍽️ AI MEAL CURATOR</div>
+      <h1 class="service-title">오늘 뭐 먹지?</h1>
+      <p class="service-subtitle">결정하기 힘든 식사 고민 끝! 시간만 고르면 AI가 찰떡궁합 메뉴를 골라드려요.</p>
+    </header>
+
+    <!-- 2. 메뉴 추천 카드 섹션 -->
+    <section class="card recommend-card">
+      <h2 class="section-title">식사 시간대를 골라주세요</h2>
+      
+      <!-- 시간대 선택 (아침 / 점심 / 저녁) 라디오 버튼 그룹 -->
+      <div class="time-selector">
+        <label class="time-option">
+          <input type="radio" name="mealTime" value="아침">
+          <span class="option-box">
+            <span class="time-icon">🌅</span>
+            <span class="time-label">아침</span>
+          </span>
+        </label>
+        
+        <label class="time-option">
+          <input type="radio" name="mealTime" value="점심" checked>
+          <span class="option-box">
+            <span class="time-icon">☀️</span>
+            <span class="time-label">점심</span>
+          </span>
+        </label>
+
+        <label class="time-option">
+          <input type="radio" name="mealTime" value="저녁">
+          <span class="option-box">
+            <span class="time-icon">🌙</span>
+            <span class="time-label">저녁</span>
+          </span>
+        </label>
+      </div>
+
+      <!-- 오류 안내 메시지 영역 -->
+      <div id="error-message" class="error-box hidden" role="alert"></div>
+
+      <!-- 추천받기 버튼 -->
+      <button id="recommend-btn" class="primary-btn" type="button">
+        <span class="btn-text">오늘의 메뉴 추천받기 🎲</span>
+        <span class="btn-spinner hidden"></span>
+      </button>
+
+      <!-- 3. 추천 결과 카드 (초기 숨김) -->
+      <div id="result-box" class="result-box hidden" aria-live="polite">
+        <div class="result-header">
+          <span class="selected-badge" id="result-time-tag">점심 추천</span>
+          <span class="ai-tag">✨ AI 엄선 꿀조합</span>
+        </div>
+
+        <div class="menu-combination">
+          <!-- 메인 메뉴 -->
+          <div class="menu-item main">
+            <span class="item-label">메인 메뉴</span>
+            <h3 class="item-name" id="main-menu-name">추천 메뉴</h3>
+          </div>
+          
+          <div class="plus-icon">+</div>
+
+          <!-- 조합 사이드 메뉴 -->
+          <div class="menu-item side">
+            <span class="item-label">최적 꿀조합</span>
+            <h3 class="item-name" id="side-menu-name">조합 메뉴</h3>
+          </div>
+        </div>
+
+        <!-- AI 추천 이유 설명 -->
+        <div class="reason-container">
+          <span class="reason-badge">💡 추천 이유</span>
+          <p class="reason-desc" id="reason-desc">추천 설명이 여기에 표시됩니다.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. 사용자 피드백 작성 및 실시간 목록 섹션 -->
+    <section class="card feedback-card">
+      <div class="feedback-header">
+        <h2 class="section-title">메뉴가 마음에 드셨나요? 한마디 남겨주세요! 💬</h2>
+        <span class="feedback-count">총 <strong id="feedback-total-count">0</strong>개의 의견</span>
+      </div>
+
+      <!-- 피드백 작성 폼 -->
+      <form id="feedback-form" class="feedback-form">
+        <div class="form-row">
+          <input 
+            type="text" 
+            id="nickname-input" 
+            class="input-field" 
+            placeholder="닉네임 (미입력 시 '익명')" 
+            maxlength="20"
+          >
+          <input 
+            type="text" 
+            id="content-input" 
+            class="input-field content-field" 
+            placeholder="추천받은 소감이나 먹고 싶은 메뉴를 자유롭게 적어주세요!" 
+            maxlength="200" 
+            required
+          >
+          <button type="submit" id="feedback-submit-btn" class="secondary-btn">남기기</button>
+        </div>
+        <div id="feedback-error" class="feedback-error-msg hidden"></div>
+      </form>
+
+      <!-- 피드백 실시간 목록 -->
+      <div class="feedback-list-container">
+        <h3 class="list-subtitle">실시간 피드백 목록 (최신순)</h3>
+        <div id="feedback-list" class="feedback-list">
+          <!-- 자바스크립트로 최신 피드백 목록이 동적으로 들어옵니다 -->
+          <div class="empty-state">아직 등록된 피드백이 없습니다. 첫 번째 한마디를 남겨보세요!</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. 푸터 -->
+    <footer class="main-footer">
+      <p>오늘 뭐 먹지? &bull; Powered by OpenAI & Supabase &bull; Vercel Ready</p>
+    </footer>
+
+  </div>
+
+  <!-- 비즈니스 로직 스크립트 연결 -->
+  <script src="app.js"></script>
+</body>
+</html>
+
